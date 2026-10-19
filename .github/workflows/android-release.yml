@@ -45,6 +45,13 @@ jobs:
 
           echo 'LOCAL_CPPFLAGS += -std=c++17' \
             >> sdl/android-project/app/jni/src/Android.mk
+                      if grep -q '^APP_STL' sdl/android-project/app/jni/Application.mk; then
+            sed -i 's/^APP_STL.*/APP_STL := c++_static/' \
+              sdl/android-project/app/jni/Application.mk
+          else
+            echo 'APP_STL := c++_static' \
+              >> sdl/android-project/app/jni/Application.mk
+          fi
 
           ln -s ../../.. sdl/android-project/app/jni/SDL
 
