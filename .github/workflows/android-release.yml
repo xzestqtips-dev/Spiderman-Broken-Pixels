@@ -1,0 +1,63 @@
+name: Build Stickman Pixel City APK
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "*.zip"
+      - ".github/workflows/android-release.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Get repository files
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Extract game project
+        run: |
+          mkdir extracted
+          unzip -o stickman-pixel-city-github-ready.zip -d extracted
+          test -f extracted/src/main.cpp
+
+      - name: Download SDL2
+        run: |
+          git clone --depth 1 --branch release-2.30.x \
+            https://github.com/libsdl-org/SDL.git sdl
+
+      - name: Prepare Android project
+        run: |
+          cp extracted/src/main.cpp \
+            sdl/android-project/app/jni/src/main.cpp
+
+          sed -i 's/^LOCAL_SRC_FILES.*/LOCAL_SRC_FILES := main.cpp/' \
+            sdl/android-project/app/jni/src/Android.mk
+
+          echo 'LOCAL_CPPFLAGS += -std=c++17' \
+            >> sdl/android-project/app/jni/src/Android.mk
+
+          ln -s ../../.. sdl/android-project/app/jni/SDL
+
+      - name: Build APK
+        working-directory: sdl/android-project
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: stickman-pixel-city-apk
+          path: sdl/android-project/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
