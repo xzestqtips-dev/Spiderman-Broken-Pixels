@@ -20,8 +20,7 @@ jobs:
 
       - name: Extract project ZIP
         run: |
-          ZIP=$(find . -maxdepth 2 -type f -name "*.zip" \
-            ! -name "project.zip" | head -n 1)
+          ZIP=$(find . -maxdepth 2 -type f -name "*.zip" | head -n 1)
 
           if [ -n "$ZIP" ]; then
             mkdir -p extracted
@@ -31,14 +30,12 @@ jobs:
             ROOT="."
           fi
 
+          echo "SOURCE_ROOT=$ROOT" >> "$GITHUB_ENV"
+
           if [ ! -f "$ROOT/src/main.cpp" ]; then
             echo "Could not find src/main.cpp"
-            echo "Make sure the ZIP contains the game source files."
             exit 1
           fi
-
-          echo "SOURCE_ROOT=$ROOT" >> "$GITHUB_ENV"
-          echo "Game source found."
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -49,46 +46,35 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Download SDL2 Android project
+      - name: Accept Android SDK licenses
+        run: yes | sdkmanager --licenses || true
+
+      - name: Install Android build tools
+        run: |
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0" \
+            "ndk;27.2.12479018"
+
+      - name: Download SDL2
         run: |
           git clone --depth 1 \
             --branch release-2.30.x \
             https://github.com/libsdl-org/SDL.git sdl
 
-      - name: Prepare game source
+      - name: Prepare Android project
         run: |
           cp "$SOURCE_ROOT/src/main.cpp" \
             sdl/android-project/app/jni/src/main.cpp
 
-          cd sdl/android-project/app/jni
-
-          cat > src/Android.mk <<'EOF'
-          LOCAL_PATH := $(call my-dir)
-
-          include $(CLEAR_VARS)
-
-          LOCAL_MODULE := main
-          SDL_PATH := ../SDL
-
-          LOCAL_SRC_FILES := src/main.cpp
-          LOCAL_CPPFLAGS += -std=c++17
-
-          LOCAL_SHARED_LIBRARIES := SDL2
-
-          LOCAL_LDLIBS := -lGLESv1_CM -lGLESv2 -lOpenSLES -llog
-
-          include $(BUILD_SHARED_LIBRARY)
-          EOF
-
-          ln -sfn ../../.. SDL
-
-      - name: Build Android APK
+      - name: Build APK
         working-directory: sdl/android-project
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug
+          ./gradlew assembleDebug --no-daemon
 
-      - name: Prepare APK
+      - name: Find APK
         run: |
           APK=$(find sdl/android-project/app/build/outputs/apk \
             -type f -name "*.apk" | head -n 1)
