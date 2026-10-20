@@ -1,22 +1,44 @@
-name: Build Stickman Pixel City APK
+name: Android APK Release
 
 on:
   workflow_dispatch:
   push:
-    paths:
-      - "*.zip"
-      - ".github/workflows/android-release.yml"
+    tags:
+      - "v*"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
+    name: Build SDL2 Android APK
     runs-on: ubuntu-latest
 
     steps:
-      - name: Get repository files
+      - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Extract project ZIP
+        run: |
+          ZIP=$(find . -maxdepth 2 -type f -name "*.zip" \
+            ! -name "project.zip" | head -n 1)
+
+          if [ -n "$ZIP" ]; then
+            mkdir -p extracted
+            unzip -oq "$ZIP" -d extracted
+            ROOT="extracted"
+          else
+            ROOT="."
+          fi
+
+          if [ ! -f "$ROOT/src/main.cpp" ]; then
+            echo "Could not find src/main.cpp"
+            echo "Make sure the ZIP contains the game source files."
+            exit 1
+          fi
+
+          echo "SOURCE_ROOT=$ROOT" >> "$GITHUB_ENV"
+          echo "Game source found."
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -24,47 +46,70 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Extract game project
-        run: |
-          mkdir extracted
-          unzip -o stickman-pixel-city-github-ready.zip -d extracted
-          test -f extracted/src/main.cpp
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
 
-      - name: Download SDL2
+      - name: Download SDL2 Android project
         run: |
-          git clone --depth 1 --branch release-2.30.x \
+          git clone --depth 1 \
+            --branch release-2.30.x \
             https://github.com/libsdl-org/SDL.git sdl
 
-      - name: Prepare Android project
+      - name: Prepare game source
         run: |
-          cp extracted/src/main.cpp \
+          cp "$SOURCE_ROOT/src/main.cpp" \
             sdl/android-project/app/jni/src/main.cpp
 
-          sed -i 's/^LOCAL_SRC_FILES.*/LOCAL_SRC_FILES := main.cpp/' \
-            sdl/android-project/app/jni/src/Android.mk
+          cd sdl/android-project/app/jni
 
-          echo 'LOCAL_CPPFLAGS += -std=c++17' \
-            >> sdl/android-project/app/jni/src/Android.mk
-                      if grep -q '^APP_STL' sdl/android-project/app/jni/Application.mk; then
-            sed -i 's/^APP_STL.*/APP_STL := c++_static/' \
-              sdl/android-project/app/jni/Application.mk
-          else
-            echo 'APP_STL := c++_static' \
-              >> sdl/android-project/app/jni/Application.mk
-          fi
+          cat > src/Android.mk <<'EOF'
+          LOCAL_PATH := $(call my-dir)
 
-          ln -s ../../.. sdl/android-project/app/jni/SDL
+          include $(CLEAR_VARS)
 
-      - name: Build APK
+          LOCAL_MODULE := main
+          SDL_PATH := ../SDL
+
+          LOCAL_SRC_FILES := src/main.cpp
+          LOCAL_CPPFLAGS += -std=c++17
+
+          LOCAL_SHARED_LIBRARIES := SDL2
+
+          LOCAL_LDLIBS := -lGLESv1_CM -lGLESv2 -lOpenSLES -llog
+
+          include $(BUILD_SHARED_LIBRARY)
+          EOF
+
+          ln -sfn ../../.. SDL
+
+      - name: Build Android APK
         working-directory: sdl/android-project
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon assembleDebug
+          ./gradlew assembleDebug
 
-      - name: Upload APK
+      - name: Prepare APK
+        run: |
+          APK=$(find sdl/android-project/app/build/outputs/apk \
+            -type f -name "*.apk" | head -n 1)
+
+          if [ -z "$APK" ]; then
+            echo "APK was not generated."
+            exit 1
+          fi
+
+          cp "$APK" StickmanPixelCity.apk
+
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: stickman-pixel-city-apk
-          path: sdl/android-project/app/build/outputs/apk/debug/*.apk
-          if-no-files-found: error
-          retention-days: 14
+          name: StickmanPixelCity-APK
+          path: StickmanPixelCity.apk
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Stickman Pixel City ${{ github.ref_name }}
+          generate_release_notes: true
+          files: StickmanPixelCity.apk
