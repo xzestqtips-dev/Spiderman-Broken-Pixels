@@ -1,75 +1,39 @@
-name: Android APK Release
+name: Build Android APK
 
 on:
-  workflow_dispatch:
   push:
     tags:
-      - "v*"
+      - 'v*'
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
   build:
-    name: Build Android APK
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Download game source
         uses: actions/checkout@v4
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y unzip
-
-      - name: Find game source
-        run: |
-          mkdir -p extracted
-
-          ZIP=$(find . -type f -name "*.zip" \
-            -not -path "./.git/*" | head -n 1)
-
-          if [ -n "$ZIP" ]; then
-            unzip -oq "$ZIP" -d extracted
-          else
-            mkdir -p extracted/project
-            find . -maxdepth 1 -mindepth 1 \
-              ! -name ".git" \
-              ! -name "extracted" \
-              -exec cp -r {} extracted/project/ \;
-          fi
-
-          MAIN_CPP=$(find extracted -type f \
-            -name "main.cpp" | head -n 1)
-
-          if [ -z "$MAIN_CPP" ]; then
-            echo "ERROR: main.cpp was not found."
-            find extracted -maxdepth 5 -type f | head -n 200
-            exit 1
-          fi
-
-          echo "MAIN_CPP=$MAIN_CPP" >> "$GITHUB_ENV"
-          echo "PROJECT_DIR=$(dirname "$MAIN_CPP")" >> "$GITHUB_ENV"
 
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: '17'
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
           packages: ''
 
-      - name: Accept SDK licenses
+      - name: Install Android SDK packages
         run: |
           set +o pipefail
           yes | sdkmanager --licenses
+          set -o pipefail
 
-      - name: Install SDK packages
-        run: |
           sdkmanager \
             "platform-tools" \
             "platforms;android-33" \
@@ -78,59 +42,91 @@ jobs:
 
       - name: Download SDL2
         run: |
-          git clone --depth 1 \
+          git clone \
+            --depth 1 \
             --branch release-2.30.x \
-            https://github.com/libsdl-org/SDL.git sdl
+            https://github.com/libsdl-org/SDL.git \
+            sdl
 
       - name: Prepare Android project
         run: |
-          cp "$MAIN_CPP" \
+          set -e
+
+          echo "Checking game source files..."
+
+          test -f src/main.cpp
+          test -f src/progression.h
+
+          echo "Copying game source files..."
+
+          cp src/main.cpp \
             sdl/android-project/app/jni/src/main.cpp
 
-          if [ -d "$PROJECT_DIR/assets" ]; then
-            mkdir -p sdl/android-project/app/src/main/assets
-            cp -r "$PROJECT_DIR/assets/." \
-              sdl/android-project/app/src/main/assets/
-          fi
+          cp src/progression.h \
+            sdl/android-project/app/jni/src/progression.h
 
-          echo "Checking SDL2 module files..."
-          find sdl -name Android.mk -o -name Application.mk
+          echo "Connecting SDL2..."
 
-          if [ ! -f sdl/android-project/app/jni/SDL/Android.mk ]; then
-            echo "SDL2 Android.mk is missing from the expected location."
-            echo "Checking the SDL Android project structure:"
-            find sdl/android-project -maxdepth 5 -type f | head -n 200
-            exit 1
-          fi
+          cd sdl/android-project/app/jni
 
-      - name: Build APK
+          ln -sfn "$GITHUB_WORKSPACE/sdl" SDL
+
+          echo "Updating Android build configuration..."
+
+          cat > src/Android.mk <<'EOF'
+          LOCAL_PATH := $(call my-dir)
+
+          include $(CLEAR_VARS)
+
+          LOCAL_MODULE := main
+          LOCAL_SRC_FILES := main.cpp
+          LOCAL_CPPFLAGS += -std=c++17
+          LOCAL_SHARED_LIBRARIES := SDL2
+
+          include $(BUILD_SHARED_LIBRARY)
+          EOF
+
+          echo "Checking SDL2 files..."
+
+          test -f SDL/Android.mk
+          test -f src/main.cpp
+          test -f src/progression.h
+
+          echo "Game source files:"
+          ls -l src/
+
+      - name: Build Android APK
         working-directory: sdl/android-project
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon
+          ./gradlew --no-daemon assembleDebug
 
-      - name: Locate APK
+      - name: Find and prepare APK
         run: |
-          APK=$(find sdl/android-project/app/build/outputs/apk \
-            -type f -name "*.apk" | head -n 1)
+          set -e
 
-          if [ -z "$APK" ]; then
-            echo "ERROR: APK was not generated."
+          APK="sdl/android-project/app/build/outputs/apk/debug/app-debug.apk"
+
+          if [ ! -f "$APK" ]; then
+            echo "APK was not generated."
+            find sdl/android-project/app/build/outputs -type f || true
             exit 1
           fi
 
-          cp "$APK" StickmanPixelCity.apk
+          cp "$APK" stickman-pixel-city.apk
+
+          echo "APK created successfully."
+          ls -lh stickman-pixel-city.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: StickmanPixelCity-APK
-          path: StickmanPixelCity.apk
+          name: stickman-pixel-city-apk
+          path: stickman-pixel-city.apk
+          if-no-files-found: error
 
       - name: Publish GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          name: Stickman Pixel City ${{ github.ref_name }}
-          generate_release_notes: true
-          files: StickmanPixelCity.apk
+          files: stickman-pixel-city.apk
