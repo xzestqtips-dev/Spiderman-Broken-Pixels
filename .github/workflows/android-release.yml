@@ -11,31 +11,32 @@ permissions:
 
 jobs:
   build:
-    name: Build SDL2 Android APK
+    name: Build Android APK
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Extract project ZIP
+      - name: Find project files
         run: |
-          ZIP=$(find . -maxdepth 2 -type f -name "*.zip" | head -n 1)
+          echo "Searching for main.cpp..."
 
-          if [ -n "$ZIP" ]; then
-            mkdir -p extracted
-            unzip -oq "$ZIP" -d extracted
-            ROOT="extracted"
-          else
-            ROOT="."
-          fi
+          MAIN_CPP=$(find . -type f -name "main.cpp" \
+            -not -path "./.git/*" | head -n 1)
 
-          echo "SOURCE_ROOT=$ROOT" >> "$GITHUB_ENV"
-
-          if [ ! -f "$ROOT/src/main.cpp" ]; then
-            echo "Could not find src/main.cpp"
+          if [ -z "$MAIN_CPP" ]; then
+            echo "ERROR: main.cpp was not found."
             exit 1
           fi
+
+          PROJECT_DIR=$(dirname "$MAIN_CPP")
+
+          echo "MAIN_CPP=$MAIN_CPP" >> "$GITHUB_ENV"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
+          echo "Found main.cpp at: $MAIN_CPP"
+          echo "Project directory: $PROJECT_DIR"
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -47,9 +48,11 @@ jobs:
         uses: android-actions/setup-android@v3
 
       - name: Accept Android SDK licenses
-        run: yes | sdkmanager --licenses || true
+        run: |
+          set +o pipefail
+          yes | sdkmanager --licenses
 
-      - name: Install Android build tools
+      - name: Install Android SDK packages
         run: |
           sdkmanager \
             "platform-tools" \
@@ -63,10 +66,25 @@ jobs:
             --branch release-2.30.x \
             https://github.com/libsdl-org/SDL.git sdl
 
+      - name: Check project files
+        run: |
+          echo "Project files:"
+          find "$PROJECT_DIR" -maxdepth 2 -type f | head -n 100
+
+          if [ ! -f "$PROJECT_DIR/CMakeLists.txt" ]; then
+            echo "WARNING: CMakeLists.txt was not found beside main.cpp."
+          fi
+
       - name: Prepare Android project
         run: |
-          cp "$SOURCE_ROOT/src/main.cpp" \
+          cp "$MAIN_CPP" \
             sdl/android-project/app/jni/src/main.cpp
+
+          if [ -d "$PROJECT_DIR/assets" ]; then
+            mkdir -p sdl/android-project/app/src/main/assets
+            cp -r "$PROJECT_DIR/assets/." \
+              sdl/android-project/app/src/main/assets/
+          fi
 
       - name: Build APK
         working-directory: sdl/android-project
@@ -74,19 +92,20 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
 
-      - name: Find APK
+      - name: Locate APK
         run: |
           APK=$(find sdl/android-project/app/build/outputs/apk \
             -type f -name "*.apk" | head -n 1)
 
           if [ -z "$APK" ]; then
-            echo "APK was not generated."
+            echo "ERROR: APK was not generated."
             exit 1
           fi
 
           cp "$APK" StickmanPixelCity.apk
+          echo "APK created successfully."
 
-      - name: Upload APK artifact
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: StickmanPixelCity-APK
