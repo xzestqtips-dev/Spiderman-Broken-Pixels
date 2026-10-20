@@ -18,21 +18,23 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Install unzip
+        run: sudo apt-get update && sudo apt-get install -y unzip
+
       - name: Find and extract game project
         run: |
-          sudo apt-get update
-          sudo apt-get install -y unzip
-
           mkdir -p extracted
 
           ZIP=$(find . -type f -name "*.zip" \
             -not -path "./.git/*" | head -n 1)
 
           if [ -n "$ZIP" ]; then
-            echo "Found project ZIP: $ZIP"
+            echo "Extracting $ZIP"
             unzip -oq "$ZIP" -d extracted
           else
             echo "No ZIP found. Using repository files."
+            find . -maxdepth 3 -type f \
+              -not -path "./.git/*" | head -n 100
             cp -r . extracted/project
           fi
 
@@ -41,10 +43,7 @@ jobs:
 
           if [ -z "$MAIN_CPP" ]; then
             echo "ERROR: main.cpp was not found."
-            echo "Files currently available in the repository:"
-            find . -maxdepth 4 -type f \
-              -not -path "./.git/*" | head -n 200
-            echo "Upload your actual game project to the repository."
+            find extracted -maxdepth 5 -type f | head -n 200
             exit 1
           fi
 
@@ -53,7 +52,7 @@ jobs:
           echo "MAIN_CPP=$MAIN_CPP" >> "$GITHUB_ENV"
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-          echo "Found main.cpp: $MAIN_CPP"
+          echo "Found: $MAIN_CPP"
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -63,6 +62,8 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: ''
 
       - name: Accept Android SDK licenses
         run: |
@@ -83,9 +84,9 @@ jobs:
             --branch release-2.30.x \
             https://github.com/libsdl-org/SDL.git sdl
 
-      - name: Show game source files
+      - name: Inspect project
         run: |
-          echo "Project directory: $PROJECT_DIR"
+          echo "Project files:"
           find "$PROJECT_DIR" -maxdepth 3 -type f | head -n 200
 
       - name: Prepare Android project
