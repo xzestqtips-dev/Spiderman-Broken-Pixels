@@ -18,10 +18,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install unzip
-        run: sudo apt-get update && sudo apt-get install -y unzip
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unzip
 
-      - name: Find and extract game project
+      - name: Find game source
         run: |
           mkdir -p extracted
 
@@ -29,13 +31,13 @@ jobs:
             -not -path "./.git/*" | head -n 1)
 
           if [ -n "$ZIP" ]; then
-            echo "Extracting $ZIP"
             unzip -oq "$ZIP" -d extracted
           else
-            echo "No ZIP found. Using repository files."
-            find . -maxdepth 3 -type f \
-              -not -path "./.git/*" | head -n 100
-            cp -r . extracted/project
+            mkdir -p extracted/project
+            find . -maxdepth 1 -mindepth 1 \
+              ! -name ".git" \
+              ! -name "extracted" \
+              -exec cp -r {} extracted/project/ \;
           fi
 
           MAIN_CPP=$(find extracted -type f \
@@ -47,12 +49,8 @@ jobs:
             exit 1
           fi
 
-          PROJECT_DIR=$(dirname "$MAIN_CPP")
-
           echo "MAIN_CPP=$MAIN_CPP" >> "$GITHUB_ENV"
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-
-          echo "Found: $MAIN_CPP"
+          echo "PROJECT_DIR=$(dirname "$MAIN_CPP")" >> "$GITHUB_ENV"
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -65,29 +63,24 @@ jobs:
         with:
           packages: ''
 
-      - name: Accept Android SDK licenses
+      - name: Accept SDK licenses
         run: |
           set +o pipefail
           yes | sdkmanager --licenses
 
-      - name: Install Android SDK packages
+      - name: Install SDK packages
         run: |
           sdkmanager \
             "platform-tools" \
-            "platforms;android-35" \
-            "build-tools;35.0.0" \
-            "ndk;27.2.12479018"
+            "platforms;android-33" \
+            "build-tools;33.0.1" \
+            "ndk;25.1.8937393"
 
       - name: Download SDL2
         run: |
           git clone --depth 1 \
             --branch release-2.30.x \
             https://github.com/libsdl-org/SDL.git sdl
-
-      - name: Inspect project
-        run: |
-          echo "Project files:"
-          find "$PROJECT_DIR" -maxdepth 3 -type f | head -n 200
 
       - name: Prepare Android project
         run: |
@@ -98,6 +91,16 @@ jobs:
             mkdir -p sdl/android-project/app/src/main/assets
             cp -r "$PROJECT_DIR/assets/." \
               sdl/android-project/app/src/main/assets/
+          fi
+
+          echo "Checking SDL2 module files..."
+          find sdl -name Android.mk -o -name Application.mk
+
+          if [ ! -f sdl/android-project/app/jni/SDL/Android.mk ]; then
+            echo "SDL2 Android.mk is missing from the expected location."
+            echo "Checking the SDL Android project structure:"
+            find sdl/android-project -maxdepth 5 -type f | head -n 200
+            exit 1
           fi
 
       - name: Build APK
