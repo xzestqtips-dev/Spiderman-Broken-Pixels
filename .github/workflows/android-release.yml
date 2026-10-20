@@ -18,15 +18,33 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Find project files
+      - name: Find and extract game project
         run: |
-          echo "Searching for main.cpp..."
+          sudo apt-get update
+          sudo apt-get install -y unzip
 
-          MAIN_CPP=$(find . -type f -name "main.cpp" \
+          mkdir -p extracted
+
+          ZIP=$(find . -type f -name "*.zip" \
             -not -path "./.git/*" | head -n 1)
+
+          if [ -n "$ZIP" ]; then
+            echo "Found project ZIP: $ZIP"
+            unzip -oq "$ZIP" -d extracted
+          else
+            echo "No ZIP found. Using repository files."
+            cp -r . extracted/project
+          fi
+
+          MAIN_CPP=$(find extracted -type f \
+            -name "main.cpp" | head -n 1)
 
           if [ -z "$MAIN_CPP" ]; then
             echo "ERROR: main.cpp was not found."
+            echo "Files currently available in the repository:"
+            find . -maxdepth 4 -type f \
+              -not -path "./.git/*" | head -n 200
+            echo "Upload your actual game project to the repository."
             exit 1
           fi
 
@@ -35,8 +53,7 @@ jobs:
           echo "MAIN_CPP=$MAIN_CPP" >> "$GITHUB_ENV"
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-          echo "Found main.cpp at: $MAIN_CPP"
-          echo "Project directory: $PROJECT_DIR"
+          echo "Found main.cpp: $MAIN_CPP"
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -66,14 +83,10 @@ jobs:
             --branch release-2.30.x \
             https://github.com/libsdl-org/SDL.git sdl
 
-      - name: Check project files
+      - name: Show game source files
         run: |
-          echo "Project files:"
-          find "$PROJECT_DIR" -maxdepth 2 -type f | head -n 100
-
-          if [ ! -f "$PROJECT_DIR/CMakeLists.txt" ]; then
-            echo "WARNING: CMakeLists.txt was not found beside main.cpp."
-          fi
+          echo "Project directory: $PROJECT_DIR"
+          find "$PROJECT_DIR" -maxdepth 3 -type f | head -n 200
 
       - name: Prepare Android project
         run: |
@@ -103,7 +116,6 @@ jobs:
           fi
 
           cp "$APK" StickmanPixelCity.apk
-          echo "APK created successfully."
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
