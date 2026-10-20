@@ -3,7 +3,7 @@ name: Build Android APK
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
   workflow_dispatch:
 
 permissions:
@@ -14,19 +14,19 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Download game source
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: "17"
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: ''
+          packages: ""
 
       - name: Install Android SDK packages
         run: |
@@ -40,6 +40,62 @@ jobs:
             "build-tools;33.0.1" \
             "ndk;25.1.8937393"
 
+      - name: Find or extract game source
+        run: |
+          set -e
+
+          mkdir -p "$GITHUB_WORKSPACE/game-source"
+
+          if [ -f "src/main.cpp" ] && [ -f "src/progression.h" ]; then
+            echo "Game source found in the repository."
+            echo "$GITHUB_WORKSPACE" > source-path.txt
+
+          else
+            echo "Game source not found at the repository root."
+            echo "Searching for a ZIP archive..."
+
+            ZIP_FILE=$(find "$GITHUB_WORKSPACE" \
+              -maxdepth 3 \
+              -type f \
+              -name '*.zip' \
+              ! -path '*/game-source/*' \
+              -print -quit)
+
+            if [ -z "$ZIP_FILE" ]; then
+              echo "ERROR: No game source files or ZIP archive found."
+              echo "Commit the game source or its ZIP file to GitHub."
+              find "$GITHUB_WORKSPACE" \
+                -maxdepth 3 \
+                -type f | head -100
+              exit 1
+            fi
+
+            echo "Extracting: $ZIP_FILE"
+            unzip -q "$ZIP_FILE" -d game-source
+
+            MAIN_FILE=$(find game-source \
+              -type f -path '*/src/main.cpp' \
+              -print -quit)
+
+            if [ -z "$MAIN_FILE" ]; then
+              echo "ERROR: src/main.cpp was not found inside the ZIP."
+              find game-source -maxdepth 5 -type f
+              exit 1
+            fi
+
+            PROJECT_DIR=$(dirname "$(dirname "$MAIN_FILE")")
+
+            if [ ! -f "$PROJECT_DIR/src/progression.h" ]; then
+              echo "ERROR: src/progression.h is missing."
+              exit 1
+            fi
+
+            echo "$GITHUB_WORKSPACE/$PROJECT_DIR" > source-path.txt
+          fi
+
+          echo "Detected source directory:"
+          cat source-path.txt
+
       - name: Download SDL2
         run: |
           git clone \
@@ -52,28 +108,22 @@ jobs:
         run: |
           set -e
 
-          echo "Checking game source files..."
+          PROJECT_DIR=$(cat source-path.txt)
 
-          test -f src/main.cpp
-          test -f src/progression.h
+          test -f "$PROJECT_DIR/src/main.cpp"
+          test -f "$PROJECT_DIR/src/progression.h"
 
-          echo "Copying game source files..."
+          JNI_DIR="$GITHUB_WORKSPACE/sdl/android-project/app/jni"
 
-          cp src/main.cpp \
-            sdl/android-project/app/jni/src/main.cpp
+          cp "$PROJECT_DIR/src/main.cpp" \
+            "$JNI_DIR/src/main.cpp"
 
-          cp src/progression.h \
-            sdl/android-project/app/jni/src/progression.h
+          cp "$PROJECT_DIR/src/progression.h" \
+            "$JNI_DIR/src/progression.h"
 
-          echo "Connecting SDL2..."
+          ln -sfn "$GITHUB_WORKSPACE/sdl" "$JNI_DIR/SDL"
 
-          cd sdl/android-project/app/jni
-
-          ln -sfn "$GITHUB_WORKSPACE/sdl" SDL
-
-          echo "Updating Android build configuration..."
-
-          cat > src/Android.mk <<'EOF'
+          cat > "$JNI_DIR/src/Android.mk" <<'EOF'
           LOCAL_PATH := $(call my-dir)
 
           include $(CLEAR_VARS)
@@ -86,36 +136,33 @@ jobs:
           include $(BUILD_SHARED_LIBRARY)
           EOF
 
-          echo "Checking SDL2 files..."
+          echo "Checking Android build files..."
+          test -f "$JNI_DIR/SDL/Android.mk"
+          test -f "$JNI_DIR/src/main.cpp"
+          test -f "$JNI_DIR/src/progression.h"
 
-          test -f SDL/Android.mk
-          test -f src/main.cpp
-          test -f src/progression.h
+          echo "Game source files are ready."
 
-          echo "Game source files:"
-          ls -l src/
-
-      - name: Build Android APK
+      - name: Build debug APK
         working-directory: sdl/android-project
         run: |
           chmod +x gradlew
           ./gradlew --no-daemon assembleDebug
 
-      - name: Find and prepare APK
+      - name: Prepare APK
         run: |
           set -e
 
           APK="sdl/android-project/app/build/outputs/apk/debug/app-debug.apk"
 
           if [ ! -f "$APK" ]; then
-            echo "APK was not generated."
-            find sdl/android-project/app/build/outputs -type f || true
+            echo "ERROR: APK was not generated."
+            find sdl/android-project/app/build/outputs \
+              -type f 2>/dev/null || true
             exit 1
           fi
 
           cp "$APK" stickman-pixel-city.apk
-
-          echo "APK created successfully."
           ls -lh stickman-pixel-city.apk
 
       - name: Upload APK
