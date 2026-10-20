@@ -44,16 +44,11 @@ jobs:
         run: |
           set -e
 
-          mkdir -p "$GITHUB_WORKSPACE/game-source"
+          mkdir -p game-source
 
           if [ -f "src/main.cpp" ] && [ -f "src/progression.h" ]; then
-            echo "Game source found in the repository."
             echo "$GITHUB_WORKSPACE" > source-path.txt
-
           else
-            echo "Game source not found at the repository root."
-            echo "Searching for a ZIP archive..."
-
             ZIP_FILE=$(find "$GITHUB_WORKSPACE" \
               -maxdepth 3 \
               -type f \
@@ -62,38 +57,34 @@ jobs:
               -print -quit)
 
             if [ -z "$ZIP_FILE" ]; then
-              echo "ERROR: No game source files or ZIP archive found."
-              echo "Commit the game source or its ZIP file to GitHub."
-              find "$GITHUB_WORKSPACE" \
-                -maxdepth 3 \
-                -type f | head -100
+              echo "ERROR: Game source or ZIP archive not found."
               exit 1
             fi
 
-            echo "Extracting: $ZIP_FILE"
-            unzip -q "$ZIP_FILE" -d game-source
+            echo "Extracting $ZIP_FILE"
+            unzip -oq "$ZIP_FILE" -d game-source
 
             MAIN_FILE=$(find game-source \
-              -type f -path '*/src/main.cpp' \
+              -type f \
+              -path '*/src/main.cpp' \
               -print -quit)
 
             if [ -z "$MAIN_FILE" ]; then
-              echo "ERROR: src/main.cpp was not found inside the ZIP."
-              find game-source -maxdepth 5 -type f
+              echo "ERROR: src/main.cpp not found in ZIP."
               exit 1
             fi
 
             PROJECT_DIR=$(dirname "$(dirname "$MAIN_FILE")")
 
             if [ ! -f "$PROJECT_DIR/src/progression.h" ]; then
-              echo "ERROR: src/progression.h is missing."
+              echo "ERROR: src/progression.h not found."
               exit 1
             fi
 
             echo "$GITHUB_WORKSPACE/$PROJECT_DIR" > source-path.txt
           fi
 
-          echo "Detected source directory:"
+          echo "Source directory:"
           cat source-path.txt
 
       - name: Download SDL2
@@ -109,11 +100,10 @@ jobs:
           set -e
 
           PROJECT_DIR=$(cat source-path.txt)
+          JNI_DIR="$GITHUB_WORKSPACE/sdl/android-project/app/jni"
 
           test -f "$PROJECT_DIR/src/main.cpp"
           test -f "$PROJECT_DIR/src/progression.h"
-
-          JNI_DIR="$GITHUB_WORKSPACE/sdl/android-project/app/jni"
 
           cp "$PROJECT_DIR/src/main.cpp" \
             "$JNI_DIR/src/main.cpp"
@@ -132,16 +122,25 @@ jobs:
           LOCAL_SRC_FILES := main.cpp
           LOCAL_CPPFLAGS += -std=c++17
           LOCAL_SHARED_LIBRARIES := SDL2
+          LOCAL_LDLIBS += -llog -landroid
 
           include $(BUILD_SHARED_LIBRARY)
           EOF
 
-          echo "Checking Android build files..."
+          APP_MK="$JNI_DIR/Application.mk"
+
+          if grep -q '^APP_STL' "$APP_MK"; then
+            sed -i 's/^APP_STL.*/APP_STL := c++_shared/' "$APP_MK"
+          else
+            echo 'APP_STL := c++_shared' >> "$APP_MK"
+          fi
+
+          echo "Checking Android configuration..."
           test -f "$JNI_DIR/SDL/Android.mk"
           test -f "$JNI_DIR/src/main.cpp"
           test -f "$JNI_DIR/src/progression.h"
 
-          echo "Game source files are ready."
+          cat "$APP_MK"
 
       - name: Build debug APK
         working-directory: sdl/android-project
