@@ -19,7 +19,6 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      # The repo only needs the .zip plus this file. Unzip happens here, on the runner.
       - name: Unzip the game
         run: |
           unzip -q "$(ls *.zip | head -1)" -d game
@@ -32,9 +31,10 @@ jobs:
       - name: Drop the game in
         run: |
           J=sdl/android-project/app/jni
-          cp "$GAME_SRC"/* $J/src/ 2>/dev/null || true   # main.cpp + combo.h + progression.h
+          cp "$GAME_SRC"/* $J/src/ 2>/dev/null || true
           sed -i 's/^LOCAL_SRC_FILES.*/LOCAL_SRC_FILES := main.cpp\nLOCAL_CPPFLAGS += -std=c++17/' $J/src/Android.mk
           ln -sfn ../../.. $J/SDL
+          printf '\nAPP_STL := c++_static\n' >> $J/Application.mk
           M=sdl/android-project/app/src/main/AndroidManifest.xml
           grep -q screenOrientation $M || sed -i '0,/<activity/s//<activity android:screenOrientation="landscape"/' $M
 
