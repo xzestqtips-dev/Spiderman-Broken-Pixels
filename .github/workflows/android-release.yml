@@ -1,66 +1,47 @@
-name: Build release APK
+name: Build APK Release
 
 on:
-  workflow_dispatch:
   push:
-    tags: ['v*']
+    tags:
+      - "v*"
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  apk:
+  release:
+    name: Publish APK Release
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Unzip the game
+      - name: Find APK or ZIP
+        id: files
+        shell: bash
         run: |
-          unzip -q "$(ls *.zip | head -1)" -d game
-          GAME=$(dirname "$(find game -name main.cpp | head -1)")
-          echo "GAME_SRC=$PWD/$GAME" >> $GITHUB_ENV
+          APK=$(find . -maxdepth 5 -type f -iname "*.apk" | head -n 1)
+          ZIP=$(find . -maxdepth 5 -type f -iname "*.zip" | head -n 1)
 
-      - name: Get SDL2 Android project
-        run: git clone --depth 1 --branch release-2.30.x https://github.com/libsdl-org/SDL.git sdl
+          if [ -n "$APK" ]; then
+            echo "file=$APK" >> "$GITHUB_OUTPUT"
+            echo "name=$(basename "$APK")" >> "$GITHUB_OUTPUT"
+          elif [ -n "$ZIP" ]; then
+            echo "file=$ZIP" >> "$GITHUB_OUTPUT"
+            echo "name=$(basename "$ZIP")" >> "$GITHUB_OUTPUT"
+          else
+            echo "No APK or ZIP file found!"
+            exit 1
+          fi
 
-      - name: Drop the game in
-        run: |
-          J=sdl/android-project/app/jni
-          cp "$GAME_SRC"/* $J/src/ 2>/dev/null || true
-          sed -i 's/^LOCAL_SRC_FILES.*/LOCAL_SRC_FILES := main.cpp\nLOCAL_CPPFLAGS += -std=c++17/' $J/src/Android.mk
-          ln -sfn ../../.. $J/SDL
-          printf '\nAPP_STL := c++_static\n' >> $J/Application.mk
-          M=sdl/android-project/app/src/main/AndroidManifest.xml
-          grep -q screenOrientation $M || sed -i '0,/<activity/s//<activity android:screenOrientation="landscape"/' $M
-
-      - name: Build release APK
-        working-directory: sdl/android-project
-        run: |
-          chmod +x gradlew
-          ./gradlew assembleRelease
-
-      - name: Sign APK
-        run: |
-          keytool -genkeypair -keystore release.jks -alias game -keyalg RSA -keysize 2048 \
-            -validity 10000 -storepass android -keypass android -dname "CN=StickPixel"
-          BT=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
-          UNSIGNED=$(ls sdl/android-project/app/build/outputs/apk/release/*.apk | head -1)
-          $BT/zipalign -f -p 4 "$UNSIGNED" aligned.apk
-          $BT/apksigner sign --ks release.jks --ks-key-alias game \
-            --ks-pass pass:android --out release.apk aligned.apk
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: release-apk
-          path: release.apk
-
-      - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: release.apk
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('release-{0}', github.run_number) }}
+          name: Release ${{ github.ref_type == 'tag' && github.ref_name || format('#{0}', github.run_number) }}
+          generate_release_notes: true
+          files: ${{ steps.files.outputs.file }}
+          fail_on_unmatched_files: true
+
