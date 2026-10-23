@@ -29,6 +29,7 @@ jobs:
         run: |
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then V="${GITHUB_REF_NAME#v}"; else V="0.0.${GITHUB_RUN_NUMBER}"; fi
           echo "VERSION=$V" >> "$GITHUB_ENV"
+          echo "VERSION_CODE=$(date +%s)" >> "$GITHUB_ENV"
 
       - name: Get SDL2 Android project
         run: git clone --depth 1 --branch "$SDL_BRANCH" https://github.com/libsdl-org/SDL.git sdl
@@ -45,7 +46,7 @@ jobs:
           cp -r assets/. $P/src/main/assets/assets/
           # app id, name, landscape, version
           sed -i "s/org.libsdl.app/${APP_ID}/g" $P/build.gradle
-          sed -i "s/versionName \".*\"/versionName \"${VERSION}\"/; s/versionCode .*/versionCode ${GITHUB_RUN_NUMBER}/" $P/build.gradle
+          sed -i "s/versionName \".*\"/versionName \"${VERSION}\"/; s/versionCode .*/versionCode ${VERSION_CODE}/" $P/build.gradle
           sed -i 's/android:screenOrientation="[^"]*"//; s/<activity /<activity android:screenOrientation="sensorLandscape" /' $P/src/main/AndroidManifest.xml
           sed -i "s|<string name=\"app_name\">.*</string>|<string name=\"app_name\">NYC Pixel Runner</string>|" $P/src/main/res/values/strings.xml || true
 
@@ -57,23 +58,18 @@ jobs:
 
       - name: Sign APK
         env:
-          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
-          KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASS }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          # Fixed key built into this file, so every build has the same signature
+          # and installs over the previous version. Don't change it.
+          KS_PASS: nycrunner123
+          KS_ALIAS: nycrunner
+          KS_B64: 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
         run: |
-          if [ -n "$KEYSTORE_B64" ]; then
-            echo "$KEYSTORE_B64" | base64 -d > release.jks
-          else
-            echo "::warning::No KEYSTORE_B64 secret set - signing with a temporary key (not suitable for Play Store / updates)."
-            KEYSTORE_PASS=android; KEY_ALIAS=temp
-            keytool -genkeypair -keystore release.jks -alias temp -keyalg RSA -keysize 2048 \
-              -validity 10000 -storepass android -keypass android -dname "CN=NYC Pixel Runner"
-          fi
+          echo "$KS_B64" | base64 -d > release.jks
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
           IN=$(ls sdl/android-project/app/build/outputs/apk/release/*.apk | head -1)
           "$BT/zipalign" -f -p 4 "$IN" aligned.apk
-          "$BT/apksigner" sign --ks release.jks --ks-key-alias "$KEY_ALIAS" \
-            --ks-pass pass:"$KEYSTORE_PASS" --out "${APP_NAME}-${VERSION}.apk" aligned.apk
+          "$BT/apksigner" sign --ks release.jks --ks-key-alias "$KS_ALIAS" \
+            --ks-pass pass:"$KS_PASS" --out "${APP_NAME}-${VERSION}.apk" aligned.apk
           "$BT/apksigner" verify "${APP_NAME}-${VERSION}.apk"
 
       - uses: actions/upload-artifact@v4
