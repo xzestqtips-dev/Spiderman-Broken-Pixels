@@ -61,11 +61,12 @@ jobs:
           # assets (game loads "assets/...")
           mkdir -p $P/src/main/assets/assets
           cp -r "$ASSETS_DIR"/. $P/src/main/assets/assets/
-          # app id, name, landscape, version
-          sed -i "s/org.libsdl.app/${APP_ID}/g" $P/build.gradle
+          # app id (ONLY applicationId; namespace must stay org.libsdl.app), version, landscape, name
+          sed -i "s/applicationId \"[^\"]*\"/applicationId \"${APP_ID}\"/" $P/build.gradle
           sed -i "s/versionName \".*\"/versionName \"${VERSION}\"/; s/versionCode .*/versionCode ${VERSION_CODE}/" $P/build.gradle
           sed -i 's/android:screenOrientation="[^"]*"//; s/<activity /<activity android:screenOrientation="sensorLandscape" /' $P/src/main/AndroidManifest.xml
           sed -i "s|<string name=\"app_name\">.*</string>|<string name=\"app_name\">Spiderman:Broken Pixels</string>|" $P/src/main/res/values/strings.xml || true
+          grep -nE "namespace|applicationId" $P/build.gradle
 
       - name: Link SDL source into the Android project
         run: ln -sfn "$GITHUB_WORKSPACE/sdl" sdl/android-project/app/jni/SDL
