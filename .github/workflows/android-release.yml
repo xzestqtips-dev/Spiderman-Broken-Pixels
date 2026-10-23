@@ -65,6 +65,9 @@ jobs:
           sed -i 's/android:screenOrientation="[^"]*"//; s/<activity /<activity android:screenOrientation="sensorLandscape" /' $P/src/main/AndroidManifest.xml
           sed -i "s|<string name=\"app_name\">.*</string>|<string name=\"app_name\">Spiderman:Broken Pixels</string>|" $P/src/main/res/values/strings.xml || true
 
+      - name: Link SDL source into the Android project
+        run: ln -sfn "$GITHUB_WORKSPACE/sdl" sdl/android-project/app/jni/SDL
+
       - name: Build release APK
         working-directory: sdl/android-project
         run: |
