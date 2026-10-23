@@ -56,6 +56,8 @@ jobs:
           cp "$SRC_DIR"/*.cpp "$SRC_DIR"/*.h $P/jni/src/ 2>/dev/null || cp "$MAIN" $P/jni/src/
           sed -i 's/^LOCAL_SRC_FILES.*/LOCAL_SRC_FILES := main.cpp/' $P/jni/src/Android.mk
           echo 'LOCAL_CPPFLAGS += -std=c++17' >> $P/jni/src/Android.mk
+          # C++ standard library (fixes undefined std:: symbols at link time)
+          echo 'APP_STL := c++_shared' >> $P/jni/Application.mk
           # assets (game loads "assets/...")
           mkdir -p $P/src/main/assets/assets
           cp -r "$ASSETS_DIR"/. $P/src/main/assets/assets/
