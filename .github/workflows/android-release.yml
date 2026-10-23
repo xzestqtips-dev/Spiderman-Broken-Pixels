@@ -34,6 +34,14 @@ jobs:
       - name: Get SDL2 Android project
         run: git clone --depth 1 --branch "$SDL_BRANCH" https://github.com/libsdl-org/SDL.git sdl
 
+      - name: Unzip the game if the repo only has a .zip
+        run: |
+          if [ -z "$(find . -path ./sdl -prune -o -name main.cpp -print | head -1)" ]; then
+            for z in $(find . -maxdepth 2 -name '*.zip' -not -path './sdl/*'); do
+              echo "Unzipping $z"; unzip -q -o "$z" -d game_unzipped
+            done
+          fi
+
       - name: Drop the game into the SDL project
         run: |
           P=sdl/android-project/app
