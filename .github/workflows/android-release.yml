@@ -9,8 +9,8 @@ permissions:
   contents: write
 
 env:
-  APP_NAME: NYC-Pixel-Runner
-  APP_ID: com.nycpixelrunner.game
+  APP_NAME: Spiderman: Broken Pixels
+  APP_ID: com.spidermanbp.game
   SDL_BRANCH: release-2.30.x
 
 jobs:
@@ -37,13 +37,20 @@ jobs:
       - name: Drop the game into the SDL project
         run: |
           P=sdl/android-project/app
+          # find the game wherever it sits in the repo (root or a subfolder)
+          MAIN=$(find . -path ./sdl -prune -o -name main.cpp -print | head -1)
+          SHEET=$(find . -path ./sdl -prune -o -name spritesheet.tga -print | head -1)
+          [ -n "$MAIN" ] || { echo "::error::main.cpp not found in repo"; find . -path ./sdl -prune -o -type f -print | head -50; exit 1; }
+          [ -n "$SHEET" ] || { echo "::error::assets/spritesheet.tga not found in repo"; exit 1; }
+          SRC_DIR=$(dirname "$MAIN"); ASSETS_DIR=$(dirname "$SHEET")
+          echo "Using sources: $SRC_DIR  assets: $ASSETS_DIR"
           # sources
-          cp src/main.cpp src/*.h $P/jni/src/
+          cp "$SRC_DIR"/*.cpp "$SRC_DIR"/*.h $P/jni/src/ 2>/dev/null || cp "$MAIN" $P/jni/src/
           sed -i 's/^LOCAL_SRC_FILES.*/LOCAL_SRC_FILES := main.cpp/' $P/jni/src/Android.mk
           echo 'LOCAL_CPPFLAGS += -std=c++17' >> $P/jni/src/Android.mk
           # assets (game loads "assets/...")
           mkdir -p $P/src/main/assets/assets
-          cp -r assets/. $P/src/main/assets/assets/
+          cp -r "$ASSETS_DIR"/. $P/src/main/assets/assets/
           # app id, name, landscape, version
           sed -i "s/org.libsdl.app/${APP_ID}/g" $P/build.gradle
           sed -i "s/versionName \".*\"/versionName \"${VERSION}\"/; s/versionCode .*/versionCode ${VERSION_CODE}/" $P/build.gradle
